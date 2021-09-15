@@ -1,5 +1,6 @@
 //Imports
 const bcrypt = require('bcryptjs')
+const jwt = require('jsonwebtoken')
     //Miniature Instance Of Express Server
 const router = require("express").Router();
 
@@ -10,18 +11,13 @@ const Users = require('../users/users-model.js')
 
 //Endpoints
 router.post("/register", validateRoleName, (req, res, next) => {
-  let user = req.body;
-  //Bcypting Password
-  const rounds = process.env.BCRYPT_ROUNDS || 8; // 2 ^ 8
-  const hash = bcrypt.hashSync(user.password, rounds);
-  //Never Save As Plain-Text
-  user.password = hash
+  const { username, password } = req.body
+  const { role_name } = req
+  const hash = bcrypt.hashSync(password, 8);
 
-  Users.add(user)
+  Users.add({ username, password: hash, role_name })
     .then(saved => {
-      res.status(201).json({
-        message: `Great to have you, ${saved.username}`,
-      });
+      res.status(201).json(saved);
     })
     .catch(next);
     
@@ -39,23 +35,19 @@ router.post("/register", validateRoleName, (req, res, next) => {
 });
 
 router.post("/login", checkUsernameExists, (req, res, next) => {
-  let { username, password } = req.body;
-
-  Users.findBy({ username }) //Should Do W/ Middleware
-    .then(([user]) => {
-      if (user && bcrypt.compareSync(password, user.password)) {
-        const token = tokenBuilder(user);
+  if (bcrypt.compareSync(req.body.password, req.user.password)) {
+    const token = buildToken(req.user);
          
-        res.status(200).json({
-          message: `Welcome back ${user.username}, here is token!`,
-          token,
-        });
-      } else {
-        res.status(401).json({ message: 'Invalid Credentials' });
-      }
-    })
-    .catch(next);
-    
+    res.status(200).json({
+      message: `${req.user.username} is back!`,
+      token,
+    });
+  } else {
+    next({
+      status: 401,
+      message: 'Invalid credentials' 
+    });
+  }
   /**
     [POST] /api/auth/login { "username": "sue", "password": "1234" }
 
@@ -76,6 +68,19 @@ router.post("/login", checkUsernameExists, (req, res, next) => {
     }
    */
 });
+
+
+function buildToken(user) {
+  const payload = {
+    subject: user.user_id,
+    role_name: user.role_name,
+    username: user.username,
+  }
+  const options = {
+    expiresIn: '1d'
+  }
+  return jwt.sign(payload, JWT_SECRET, options)
+}
 
 
 //Exports; Exposing
